@@ -1,0 +1,4 @@
+# Ignore local config files
+docksal-local.env
+docksal-local.yml
+

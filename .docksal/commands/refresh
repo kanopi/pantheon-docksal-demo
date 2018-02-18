@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+
+#: exec_target = cli
+
+## Refresh database, files, and import configuration
+##
+## Usage: fin refresh
+
+# Abort if anything fails
+set -e
+
+while getopts 'a:s:e:' flag; do
+  case $flag in
+    a)
+      TERMINUS_EMAIL=${OPTARG}
+      ;;
+    s)
+      PANTHEON_SITE=${OPTARG}
+      ;;
+    e)
+      PANTHEON_ENV=${OPTARG}
+      ;;
+  esac
+done
+
+TMP_USER=$(terminus whoami);
+DOCROOT=${DOCROOT:-docroot};
+SITE_DIRECTORY=${SITE_DIRECTORY:-default};
+
+if [ "$TMP_USER" != "$TERMINUS_EMAIL" ]; then
+    terminus login --machine-token="${TERMINUS_TOKEN}"
+fi;
+
+DOCROOT_PATH="${PROJECT_ROOT}/${DOCROOT}"
+SITEDIR_PATH="${DOCROOT_PATH}/sites/${SITE_DIRECTORY}"
+
+cd $PROJECT_ROOT
+cd $SITEDIR_PATH
+
+if [ ! -d ${PROJECT_ROOT}/sites/${SITE_DIRECTORY}/files ]; then
+    mkdir ${PROJECT_ROOT}/sites/${SITE_DIRECTORY}/files
+fi
+chmod -R 755 files
+
+DBFILE="/tmp/${PANTHEON_SITE}.sql"
+if [ ! -f $DBFILE ] || [ ! -z $(find ${DBFILE} -mmin +3600) ]; then
+ echo "${DBFILE} need updating"
+
+  echo "Exporting latest database..."
+  if [ -f $DBFILE ] && [ ! -z $(find ${DBFILE} -mmin +3600) ]; then
+    rm -rf $DBFILE
+  fi
+  terminus env:wake ${PANTHEON_SITE}.${PANTHEON_ENV}
+  DBCONN=$(terminus connection:info ${PANTHEON_SITE}.${PANTHEON_ENV} --field="MySQL Command")
+  DBDUMP=${DBCONN/mysql /mysqldump }
+  eval $DBDUMP " --result-file=$DBFILE"
+fi
+
+echo "Importing Database..."
+drush sql-cli < ${DBFILE}
+
+cd ${DOCROOT_PATH}
+
+echo "Running Update.php..."
+drush updatedb -y
